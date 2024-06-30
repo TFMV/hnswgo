@@ -36,24 +36,18 @@ extern "C"
     size_t indexFileSize(HnswIndex *index);
     void saveIndex(HnswIndex *index, char *location);
     HnswIndex *loadIndex(char *location, spaceType space_type, int dim, size_t max_elements, int allow_replace_deleted);
-    void addPoints(HnswIndex *index, float **vectors, int rows, size_t *labels, int num_threads, int replace_deleted);
+    void addPoints(HnswIndex *index, const float *vectors, int rows, size_t *labels, int num_threads, int replace_deleted);
     void markDeleted(HnswIndex *index, size_t label);
     void unmarkDeleted(HnswIndex *index, size_t label);
     void resizeIndex(HnswIndex *index, size_t new_size);
     size_t getMaxElements(HnswIndex *index);
     size_t getCurrentCount(HnswIndex *index);
     // SearchResult *searchKnn(HnswIndex *index, float **vectors, int rows, int k, filter_func filter, int num_threads);
-    SearchResult *searchKnn(HnswIndex *index, float **vectors, int rows, int k, int num_threads);
+    SearchResult *searchKnn(HnswIndex *index, const float *flat_vectors, int rows, int k, int num_threads);
 
     void freeHNSW(HnswIndex *index);
     void freeResult(SearchResult *result);
 
-// HNSW loadHNSW(char *location, int dim, char stype);
-//   HNSW saveHNSW(HNSW index, char *location);
-//   void freeHNSW(HNSW index);
-//   void addPoint(HNSW index, float *vec, unsigned long int label);
-//   int searchKnn(HNSW index, float *vec, int N, unsigned long int *label, float *dist);
-//   void setEf(HNSW index, int ef);
 #ifdef __cplusplus
 }
 #endif

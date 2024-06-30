@@ -8,6 +8,7 @@ package hnswgo
 import "C"
 import (
 	"errors"
+	"sync"
 	"unsafe"
 )
 
@@ -26,6 +27,12 @@ type HnswIndex struct {
 type SearchResult struct {
 	Label    uint32
 	Distance float32
+}
+
+var ptrPool = sync.Pool{
+	New: func() interface{} {
+		return new([]float32)
+	},
 }
 
 func New(dim, M, efConstruction, randSeed int, maxElements uint32, spaceType SpaceType, allowReplaceDeleted bool) *HnswIndex {
@@ -114,14 +121,29 @@ func (idx *HnswIndex) AddPoints(vectors [][]float32, labels []uint32, concurrenc
 	}
 
 	rows := len(vectors)
+	flatVectors := flatten2DArray(vectors)
+
 	//as a Go []float32 is layout-compatible with a C float[] so we can pass  Go slice directly to the C function as a pointer to its first element.
 	C.addPoints(idx.index,
-		(**C.float)(unsafe.Pointer(&vectors[0])),
+		(*C.float)(unsafe.Pointer(&flatVectors[0])),
 		C.int(rows),
 		(*C.size_t)(unsafe.Pointer(&labels[0])),
 		C.int(concurrency),
 		C.int(replace))
 	return nil
+}
+
+// flatten the vectors to prevent the "cgo argument has Go pointer to unpinned Go pointer" issue.
+func flatten2DArray(vectors [][]float32) []float32 {
+	rows := len(vectors)
+	dim := len(vectors[0])
+	flatVectors := make([]float32, 0, rows*dim)
+
+	for _, vector := range vectors {
+		flatVectors = append(flatVectors, vector...)
+	}
+
+	return flatVectors
 }
 
 func (idx *HnswIndex) SearchKNN(vectors [][]float32, topK int, concurrency int) ([]*SearchResult, error) {
@@ -138,8 +160,9 @@ func (idx *HnswIndex) SearchKNN(vectors [][]float32, topK int, concurrency int) 
 	}
 
 	rows := len(vectors)
+	flatVectors := flatten2DArray(vectors)
 	cResult := C.searchKnn(idx.index,
-		(**C.float)(unsafe.Pointer(&vectors[0])),
+		(*C.float)(unsafe.Pointer(&flatVectors[0])),
 		C.int(rows),
 		C.int(topK),
 		C.int(concurrency),
@@ -171,8 +194,6 @@ func (idx *HnswIndex) ResizeIndex(newSize uint32) {
 	C.resizeIndex(idx.index, C.size_t(newSize))
 }
 
-// size_t getMaxElements(HnswIndex *index);
-// size_t getCurrentCount(HnswIndex *index);
 func (idx *HnswIndex) GetMaxElements() uint32 {
 	return uint32(C.getMaxElements(idx.index))
 }
@@ -184,70 +205,3 @@ func (idx *HnswIndex) GetCurrentCount() uint32 {
 func (idx *HnswIndex) Free() {
 	C.freeHNSW(idx.index)
 }
-
-// func Load(location string, dim int, spaceType string) *HNSW {
-// 	var hnsw HNSW
-// 	hnsw.dim = dim
-// 	hnsw.spaceType = spaceType
-
-// 	pLocation := C.CString(location)
-// 	if spaceType == "ip" {
-// 		hnsw.index = C.loadHNSW(pLocation, C.int(dim), C.char('i'))
-// 	} else if spaceType == "cosine" {
-// 		hnsw.normalize = true
-// 		hnsw.index = C.loadHNSW(pLocation, C.int(dim), C.char('i'))
-// 	} else {
-// 		hnsw.index = C.loadHNSW(pLocation, C.int(dim), C.char('l'))
-// 	}
-// 	C.free(unsafe.Pointer(pLocation))
-// 	return &hnsw
-// }
-
-// func (h *HNSW) Save(location string) {
-// 	pLocation := C.CString(location)
-// 	C.saveHNSW(h.index, pLocation)
-// 	C.free(unsafe.Pointer(pLocation))
-// }
-
-// func (h *HNSW) Free() {
-// 	C.freeHNSW(h.index)
-// }
-
-// func normalizeVector(vector []float32) []float32 {
-// 	var norm float32
-// 	for i := 0; i < len(vector); i++ {
-// 		norm += vector[i] * vector[i]
-// 	}
-// 	norm = 1.0 / (float32(math.Sqrt(float64(norm))) + 1e-15)
-// 	for i := 0; i < len(vector); i++ {
-// 		vector[i] = vector[i] * norm
-// 	}
-// 	return vector
-// }
-
-// func (h *HNSW) AddPoint(vector []float32, label uint32) {
-// 	if h.normalize {
-// 		vector = normalizeVector(vector)
-// 	}
-// 	C.addPoint(h.index, (*C.float)(unsafe.Pointer(&vector[0])), C.ulong(label))
-// }
-
-// func (h *HNSW) SearchKNN(vector []float32, N int) ([]uint32, []float32) {
-// 	Clabel := make([]C.ulong, N, N)
-// 	Cdist := make([]C.float, N, N)
-// 	if h.normalize {
-// 		vector = normalizeVector(vector)
-// 	}
-// 	numResult := int(C.searchKnn(h.index, (*C.float)(unsafe.Pointer(&vector[0])), C.int(N), &Clabel[0], &Cdist[0]))
-// 	labels := make([]uint32, N)
-// 	dists := make([]float32, N)
-// 	for i := 0; i < numResult; i++ {
-// 		labels[i] = uint32(Clabel[i])
-// 		dists[i] = float32(Cdist[i])
-// 	}
-// 	return labels[:numResult], dists[:numResult]
-// }
-
-// func (h *HNSW) SetEf(ef int) {
-// 	C.setEf(h.index, C.int(ef))
-// }

@@ -4,6 +4,10 @@
 #include "hnsw_wrapper.h"
 #include <thread>
 #include <atomic>
+#include <vector>
+
+
+static std::vector<std::vector<float>> convertTo2DVector(const float* flat_vectors, int rows, int cols);
 
 /*
  * replacement for the openmp '#pragma omp parallel for' directive
@@ -190,7 +194,7 @@ void normalize_vector(int dim, float *data, float *norm_array)
         norm_array[i] = data[i] * norm;
 }
 
-void addPoints(HnswIndex *index, float **vectors, int rows, size_t *labels, int num_threads, int replace_deleted)
+void addPoints(HnswIndex *index, const float *flat_vectors, int rows, size_t *labels, int num_threads, int replace_deleted)
 {
     // avoid using threads when the number of additions is small:
     if (rows <= num_threads * 4)
@@ -198,10 +202,12 @@ void addPoints(HnswIndex *index, float **vectors, int rows, size_t *labels, int 
         num_threads = 1;
     }
 
+    std::vector<std::vector<float>> vectors = convertTo2DVector(flat_vectors, rows, index->dim);
+
     if (index->normalize == false) {
         ParallelFor(0, rows, num_threads, [&](size_t row, size_t threadId) {
             size_t id = *(labels + row);
-            ((hnswlib::HierarchicalNSW<float> *)(index->hnsw))->addPoint(vectors[row], id, replace_deleted);
+            ((hnswlib::HierarchicalNSW<float> *)(index->hnsw))->addPoint(vectors[row].data(), id, replace_deleted);
         });
         return;
     }
@@ -211,7 +217,7 @@ void addPoints(HnswIndex *index, float **vectors, int rows, size_t *labels, int 
                 {
         // normalize vector:
         size_t start_idx = threadId * (index->dim);
-        normalize_vector((index->dim), vectors[row], (norm_array.data() + start_idx));
+        normalize_vector((index->dim), vectors[row].data(), (norm_array.data() + start_idx));
 
         size_t id = *(labels + row);
         ((hnswlib::HierarchicalNSW<float> *)(index->hnsw))->addPoint((void*)(norm_array.data() + start_idx), id, replace_deleted); 
@@ -245,8 +251,7 @@ size_t getCurrentCount(HnswIndex *index)
     return ((hnswlib::HierarchicalNSW<float> *)(index->hnsw))->cur_element_count;
 }
 
-
-SearchResult *searchKnn(HnswIndex *index, float **vectors, int rows, int k, int num_threads)
+SearchResult *searchKnn(HnswIndex *index, const float *flat_vectors, int rows, int k, int num_threads)
 {
     //CustomFilterFunctor idFilter(filter);
     //CustomFilterFunctor *p_idFilter = filter ? &idFilter : nullptr;
@@ -257,14 +262,25 @@ SearchResult *searchKnn(HnswIndex *index, float **vectors, int rows, int k, int 
         num_threads = 1;
     }
 
+    std::vector<std::vector<float>> vectors = convertTo2DVector(flat_vectors, rows, index->dim);
+
     SearchResult *searchResult = new SearchResult;
+    if (!searchResult) {
+        return nullptr; // Allocation failure
+    }
     searchResult->label = new hnswlib::labeltype[rows * k];
     searchResult->dist = new float[rows * k];
+    if (!searchResult->label || !searchResult->dist) {
+        delete[] searchResult->label;
+        delete[] searchResult->dist;
+        delete searchResult;
+        return nullptr; // Allocation failure
+    }
 
     ParallelFor(0, rows, num_threads, [&](size_t row, size_t threadId)
                 {
             std::priority_queue<std::pair<float,  hnswlib::labeltype>> result = 
-                ((hnswlib::HierarchicalNSW<float> *)index->hnsw)->searchKnn((void*)vectors[row], k, nullptr);
+                ((hnswlib::HierarchicalNSW<float> *)index->hnsw)->searchKnn(vectors[row].data(), k, nullptr);
             for (int i = k - 1; i >= 0; i--) {
                 auto& result_tuple = result.top();
                 *(searchResult->dist + row * k + i) = result_tuple.first;
@@ -300,26 +316,15 @@ void freeResult(SearchResult *result)
 {
     delete[] result->label;
     delete[] result->dist;
+    delete result;
 }
 
-
-float **createVectorArray(int rows, int dim)
-{
-    // Allocate memory for the array of pointers (rows)
-    float **array = new float *[rows];
-    for (int i = 0; i < rows; ++i)
-    {
-        // Allocate memory for each row
-        array[i] = new float[dim];
+static std::vector<std::vector<float>> convertTo2DVector(const float* flat_vectors, int rows, int cols) {
+    std::vector<std::vector<float>> vectors(rows, std::vector<float>(cols));
+    for (int i = 0; i < rows; ++i) {
+        for (int j = 0; j < cols; ++j) {
+            vectors[i][j] = flat_vectors[i * cols + j];
+        }
     }
-    return array;
-}
-
-void freeVectorArray(float **array, int rows)
-{
-    for (int i = 0; i < rows; ++i)
-    {
-        delete[] array[i]; // Free each row
-    }
-    delete[] array; // Free the array of pointers
+    return vectors;
 }
