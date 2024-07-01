@@ -277,16 +277,43 @@ SearchResult *searchKnn(HnswIndex *index, const float *flat_vectors, int rows, i
         return nullptr; // Allocation failure
     }
 
-    ParallelFor(0, rows, num_threads, [&](size_t row, size_t threadId)
-                {
-            std::priority_queue<std::pair<float,  hnswlib::labeltype>> result = 
+
+    if (index->normalize == false) {
+        ParallelFor(0, rows, num_threads, [&](size_t row, size_t threadId) {
+            std::priority_queue<std::pair<float, hnswlib::labeltype>> result = 
                 ((hnswlib::HierarchicalNSW<float> *)index->hnsw)->searchKnn(vectors[row].data(), k, nullptr);
+            
+            if (result.size() != k)
+                throw std::runtime_error("Cannot return the results in a contiguous 2D array. Probably ef or M is too small");
+
             for (int i = k - 1; i >= 0; i--) {
                 auto& result_tuple = result.top();
                 *(searchResult->dist + row * k + i) = result_tuple.first;
                 *(searchResult->label + row * k + i) = result_tuple.second;
                 result.pop();
-            } });
+            } 
+        });
+
+    } else {
+        std::vector<float> norm_array(num_threads * (index->dim));
+        ParallelFor(0, rows, num_threads, [&](size_t row, size_t threadId) {
+            size_t start_idx = threadId * (index->dim);
+            normalize_vector((index->dim), vectors[row].data(), (norm_array.data() + start_idx));
+
+            std::priority_queue<std::pair<float, hnswlib::labeltype>> result = 
+                ((hnswlib::HierarchicalNSW<float> *)index->hnsw)->searchKnn((void*)(norm_array.data() + start_idx), k, nullptr);
+            
+            if (result.size() != k)
+                throw std::runtime_error("Cannot return the results in a contiguous 2D array. Probably ef or M is too small");
+
+            for (int i = k - 1; i >= 0; i--) {
+                auto& result_tuple = result.top();
+                *(searchResult->dist + row * k + i) = result_tuple.first;
+                *(searchResult->label + row * k + i) = result_tuple.second;
+                result.pop();
+            } 
+        });
+    }
 
     return searchResult;
 }

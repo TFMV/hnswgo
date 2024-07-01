@@ -22,9 +22,13 @@ func main() {
 	var index *hnswgo.HnswIndex
 	if PathExists("./example.data") {
 		index = hnswgo.Load("./example.data", hnswgo.Cosine, dim, uint64(maxElements), true)
+		defer index.Free()
+
 	} else {
 		start := time.Now()
 		index = hnswgo.New(dim, M, efConstruction, 432, uint64(maxElements), hnswgo.Cosine, true)
+		defer index.Free()
+
 		for i := 0; i < 100; i++ {
 			points, labels := randomPoints(dim, i*batchSize, batchSize)
 			err := index.AddPoints(points, labels, 4, false)
@@ -32,12 +36,10 @@ func main() {
 				panic(err)
 			}
 		}
-		index.Save("./example.data")
+		defer index.Save("./example.data")
 		fmt.Printf("Time elapsed: %f, max label: %d\n", time.Since(start).Seconds(), maxLabel)
 
 	}
-
-	defer index.Free()
 
 	query := [][]float32{randomPoint(dim)}
 	result, err := index.SearchKNN(query, 5, 1)
