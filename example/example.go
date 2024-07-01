@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"slices"
 	"time"
 
 	"github.com/oligo/hnswgo"
@@ -16,34 +17,37 @@ func main() {
 	efConstruction := 10
 
 	batchSize := 1000
-	maxElements := batchSize * 100
+	maxElements := 100000
 
 	var index *hnswgo.HnswIndex
 	if PathExists("./example.data") {
-		index = hnswgo.Load("./example.data", hnswgo.Cosine, dim, uint32(maxElements), true)
+		index = hnswgo.Load("./example.data", hnswgo.Cosine, dim, uint64(maxElements), true)
 	} else {
 		start := time.Now()
-		index = hnswgo.New(dim, M, efConstruction, 432, uint32(maxElements), hnswgo.Cosine, true)
-		for i := 0; i < maxElements/batchSize; i++ {
+		index = hnswgo.New(dim, M, efConstruction, 432, uint64(maxElements), hnswgo.Cosine, true)
+		for i := 0; i < 100; i++ {
 			points, labels := randomPoints(dim, i*batchSize, batchSize)
-			index.AddPoints(points, labels, 4, false)
+			err := index.AddPoints(points, labels, 4, false)
+			if err != nil {
+				panic(err)
+			}
 		}
+		index.Save("./example.data")
+		fmt.Printf("Time elapsed: %f, max label: %d\n", time.Since(start).Seconds(), maxLabel)
 
-		defer index.Save("example.data")
-		fmt.Printf("Time elapsed: %f", time.Since(start).Seconds())
 	}
 
 	defer index.Free()
 
-	// query := [][]float32{randomPoint(dim)}
-	// result, err := index.SearchKNN(query, 5, 1)
-	// if err != nil {
-	// 	panic(err)
-	// }
+	query := [][]float32{randomPoint(dim)}
+	result, err := index.SearchKNN(query, 5, 1)
+	if err != nil {
+		panic(err)
+	}
 
-	// for _, rv := range result {
-	// 	fmt.Printf("label: %d, distance: %f\n", rv.Label, rv.Distance)
-	// }
+	for _, rv := range result {
+		fmt.Printf("label: %d, distance: %f\n", rv.Label, rv.Distance)
+	}
 
 }
 
@@ -55,9 +59,11 @@ func randomPoint(dim int) []float32 {
 	return v
 }
 
-func randomPoints(dim int, startLabel int, batchSize int) ([][]float32, []uint32) {
+var maxLabel = uint64(0)
+
+func randomPoints(dim int, startLabel int, batchSize int) ([][]float32, []uint64) {
 	points := make([][]float32, batchSize)
-	labels := make([]uint32, batchSize)
+	labels := make([]uint64, 0)
 
 	for i := 0; i < batchSize; i++ {
 		v := make([]float32, dim)
@@ -65,9 +71,10 @@ func randomPoints(dim int, startLabel int, batchSize int) ([][]float32, []uint32
 			v[i] = rand.Float32()
 		}
 		points[i] = v
-		labels = append(labels, uint32(startLabel+i))
+		labels = append(labels, uint64(startLabel+i))
 	}
 
+	maxLabel = max(maxLabel, slices.Max(labels))
 	return points, labels
 }
 

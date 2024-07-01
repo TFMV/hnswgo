@@ -13,7 +13,7 @@ func TestNewIndex(t *testing.T) {
 	batchSize := 100
 	maxElements := batchSize * 100
 
-	index := New(dim, M, efConstruction, 432, uint32(maxElements), Cosine, true)
+	index := New(dim, M, efConstruction, 432, uint64(maxElements), Cosine, true)
 	defer index.Free()
 
 	for i := 0; i < maxElements/batchSize; i++ {
@@ -28,7 +28,7 @@ func TestLoadIndex(t *testing.T) {
 	batchSize := 100
 	maxElements := batchSize * 100
 
-	index := Load("./example.data", Cosine, dim, uint32(maxElements), true)
+	index := Load("./example.data", Cosine, dim, uint64(maxElements), true)
 	defer index.Free()
 
 	// index2 := Load("./example-nonexist.data", Cosine, dim, uint32(maxElements), true)
@@ -40,7 +40,7 @@ func TestVectorSearch(t *testing.T) {
 	batchSize := 100
 	maxElements := batchSize * 10000
 
-	index := Load("./example.data", Cosine, dim, uint32(maxElements), true)
+	index := Load("./example.data", Cosine, dim, uint64(maxElements), true)
 	defer index.Free()
 
 	query := genQuery(dim, 10)
@@ -69,9 +69,9 @@ func TestVectorSearch(t *testing.T) {
 
 }
 
-func randomPoints(dim int, startLabel int, batchSize int) ([][]float32, []uint32) {
+func randomPoints(dim int, startLabel int, batchSize int) ([][]float32, []uint64) {
 	points := make([][]float32, batchSize)
-	labels := make([]uint32, batchSize)
+	labels := make([]uint64, 0)
 
 	for i := 0; i < batchSize; i++ {
 		v := make([]float32, dim)
@@ -79,7 +79,7 @@ func randomPoints(dim int, startLabel int, batchSize int) ([][]float32, []uint32
 			v[i] = rand.Float32()
 		}
 		points[i] = v
-		labels = append(labels, uint32(startLabel+i))
+		labels = append(labels, uint64(startLabel+i))
 	}
 
 	return points, labels

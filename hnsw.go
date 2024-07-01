@@ -8,7 +8,6 @@ package hnswgo
 import "C"
 import (
 	"errors"
-	"sync"
 	"unsafe"
 )
 
@@ -25,17 +24,11 @@ type HnswIndex struct {
 }
 
 type SearchResult struct {
-	Label    uint32
+	Label    uint64
 	Distance float32
 }
 
-var ptrPool = sync.Pool{
-	New: func() interface{} {
-		return new([]float32)
-	},
-}
-
-func New(dim, M, efConstruction, randSeed int, maxElements uint32, spaceType SpaceType, allowReplaceDeleted bool) *HnswIndex {
+func New(dim, M, efConstruction, randSeed int, maxElements uint64, spaceType SpaceType, allowReplaceDeleted bool) *HnswIndex {
 	var allowReplace int = 0
 	if allowReplaceDeleted {
 		allowReplace = 1
@@ -58,7 +51,7 @@ func New(dim, M, efConstruction, randSeed int, maxElements uint32, spaceType Spa
 	}
 }
 
-func Load(location string, spaceType SpaceType, dim int, maxElements uint32, allowReplaceDeleted bool) *HnswIndex {
+func Load(location string, spaceType SpaceType, dim int, maxElements uint64, allowReplaceDeleted bool) *HnswIndex {
 	var allowReplace int = 0
 	if allowReplaceDeleted {
 		allowReplace = 1
@@ -88,10 +81,10 @@ func (idx *HnswIndex) SetEf(ef int) {
 	C.setEf(idx.index, C.size_t(ef))
 }
 
-func (idx *HnswIndex) IndexFileSize() uint32 {
+func (idx *HnswIndex) IndexFileSize() uint64 {
 	sz := C.indexFileSize(idx.index)
 
-	return uint32(sz)
+	return uint64(sz)
 }
 
 func (idx *HnswIndex) Save(location string) {
@@ -102,7 +95,7 @@ func (idx *HnswIndex) Save(location string) {
 }
 
 // Add points to hnsw index.
-func (idx *HnswIndex) AddPoints(vectors [][]float32, labels []uint32, concurrency int, replaceDeleted bool) error {
+func (idx *HnswIndex) AddPoints(vectors [][]float32, labels []uint64, concurrency int, replaceDeleted bool) error {
 	var replace int = 0
 	if replaceDeleted {
 		replace = 1
@@ -173,7 +166,7 @@ func (idx *HnswIndex) SearchKNN(vectors [][]float32, topK int, concurrency int) 
 	results := make([]*SearchResult, topK) //the resulting slice
 	for i := range results {
 		r := SearchResult{}
-		r.Label = *(*uint32)(unsafe.Add(unsafe.Pointer(cResult.label), i*C.sizeof_ulong))
+		r.Label = *(*uint64)(unsafe.Add(unsafe.Pointer(cResult.label), i*C.sizeof_ulong))
 		r.Distance = *(*float32)(unsafe.Add(unsafe.Pointer(cResult.dist), i*C.sizeof_float))
 		results[i] = &r
 	}
@@ -182,24 +175,24 @@ func (idx *HnswIndex) SearchKNN(vectors [][]float32, topK int, concurrency int) 
 
 }
 
-func (idx *HnswIndex) MarkDeleted(label uint32) {
+func (idx *HnswIndex) MarkDeleted(label uint64) {
 	C.markDeleted(idx.index, C.size_t(label))
 }
 
-func (idx *HnswIndex) UnmarkDeleted(label uint32) {
+func (idx *HnswIndex) UnmarkDeleted(label uint64) {
 	C.unmarkDeleted(idx.index, C.size_t(label))
 }
 
-func (idx *HnswIndex) ResizeIndex(newSize uint32) {
+func (idx *HnswIndex) ResizeIndex(newSize uint64) {
 	C.resizeIndex(idx.index, C.size_t(newSize))
 }
 
-func (idx *HnswIndex) GetMaxElements() uint32 {
-	return uint32(C.getMaxElements(idx.index))
+func (idx *HnswIndex) GetMaxElements() uint64 {
+	return uint64(C.getMaxElements(idx.index))
 }
 
-func (idx *HnswIndex) GetCurrentCount() uint32 {
-	return uint32(C.getCurrentCount(idx.index))
+func (idx *HnswIndex) GetCurrentCount() uint64 {
+	return uint64(C.getCurrentCount(idx.index))
 }
 
 func (idx *HnswIndex) Free() {
