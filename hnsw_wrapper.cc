@@ -118,12 +118,10 @@ HnswIndex *newIndex(spaceType space_type, const int dim, size_t max_elements, in
         throw std::runtime_error("Space name must be one of l2, ip, or cosine.");
     }
 
-    hnswlib::HierarchicalNSW<float> *appr_alg = new hnswlib::HierarchicalNSW<float>(space, max_elements, M, ef_construction, rand_seed, allow_replace_deleted);
+    hnswlib::HierarchicalNSW<float> *appr_alg = new hnswlib::HierarchicalNSW<float>(space, max_elements, M, ef_construction, rand_seed, static_cast<bool>(allow_replace_deleted));
 
     index->hnsw = (void *)appr_alg;
     index->dim = dim;
-    index->max_elements = max_elements;
-    index->allow_replace_deleted = allow_replace_deleted;
     index->normalize = normalize;
     index->space = (void *)space;
     index->space_type = space_type;
@@ -171,13 +169,10 @@ HnswIndex *loadIndex(char *location, spaceType space_type, int dim, size_t max_e
         throw std::runtime_error("Space name must be one of l2, ip, or cosine.");
     }
 
-    hnswlib::HierarchicalNSW<float> *appr_alg = new hnswlib::HierarchicalNSW<float>(space, location, false, max_elements, allow_replace_deleted);
-    // cur_l = appr_alg->cur_element_count;
+    hnswlib::HierarchicalNSW<float> *appr_alg = new hnswlib::HierarchicalNSW<float>(space, location, false, max_elements, static_cast<bool>(allow_replace_deleted));
 
     index->hnsw = (void *)appr_alg;
     index->dim = dim;
-    index->max_elements = max_elements;
-    index->allow_replace_deleted = allow_replace_deleted;
     index->normalize = normalize;
     index->space = (void *)space;
     index->space_type = space_type;
@@ -194,7 +189,7 @@ void normalize_vector(int dim, float *data, float *norm_array)
         norm_array[i] = data[i] * norm;
 }
 
-void addPoints(HnswIndex *index, const float *flat_vectors, int rows, size_t *labels, int num_threads, int replace_deleted)
+int addPoints(HnswIndex *index, const float *flat_vectors, int rows, size_t *labels, int num_threads, int replace_deleted)
 {
     // avoid using threads when the number of additions is small:
     if (rows <= num_threads * 4)
@@ -204,25 +199,31 @@ void addPoints(HnswIndex *index, const float *flat_vectors, int rows, size_t *la
 
     std::vector<std::vector<float>> vectors = convertTo2DVector(flat_vectors, rows, index->dim);
 
-    if (index->normalize == false) {
-        ParallelFor(0, rows, num_threads, [&](size_t row, size_t threadId) {
+    try {
+        if (index->normalize == false) {
+            ParallelFor(0, rows, num_threads, [&](size_t row, size_t threadId) {
+                size_t id = *(labels + row);
+                ((hnswlib::HierarchicalNSW<float> *)(index->hnsw))->addPoint(vectors[row].data(), id, static_cast<bool>(replace_deleted));
+            });
+            return 0;
+        }
+
+        std::vector<float> norm_array(num_threads * (index->dim));
+        ParallelFor(0, rows, num_threads, [&](size_t row, size_t threadId){
+            // normalize vector:
+            size_t start_idx = threadId * (index->dim);
+            normalize_vector((index->dim), vectors[row].data(), (norm_array.data() + start_idx));
+
             size_t id = *(labels + row);
-            ((hnswlib::HierarchicalNSW<float> *)(index->hnsw))->addPoint(vectors[row].data(), id, replace_deleted);
-        });
-        return;
+            ((hnswlib::HierarchicalNSW<float> *)(index->hnsw))->addPoint((void*)(norm_array.data() + start_idx), id, static_cast<bool>(replace_deleted)); 
+            });
+
+    } catch (const std::exception& e) {
+        std::cerr << "[hnsw] Exception caught: " << e.what() << std::endl;
+        return 1; // Error code for C
     }
 
-    std::vector<float> norm_array(num_threads * (index->dim));
-    ParallelFor(0, rows, num_threads, [&](size_t row, size_t threadId)
-                {
-        // normalize vector:
-        size_t start_idx = threadId * (index->dim);
-        normalize_vector((index->dim), vectors[row].data(), (norm_array.data() + start_idx));
-
-        size_t id = *(labels + row);
-        ((hnswlib::HierarchicalNSW<float> *)(index->hnsw))->addPoint((void*)(norm_array.data() + start_idx), id, replace_deleted); 
-        });
-
+    return 0;
   
 }
 
@@ -318,6 +319,15 @@ SearchResult *searchKnn(HnswIndex *index, const float *flat_vectors, int rows, i
     return searchResult;
 }
 
+int getAllowReplaceDeleted(HnswIndex *index) {
+   return ((hnswlib::HierarchicalNSW<float> *)index->hnsw)->allow_replace_deleted_;
+}
+
+void getDataByLabel(HnswIndex *index, const size_t label, float* data) {
+    auto vec = ((hnswlib::HierarchicalNSW<float> *)index->hnsw)->getDataByLabel<float>(label);
+    data = vec.data();
+}
+
 void freeHNSW(HnswIndex *index)
 {
     hnswlib::HierarchicalNSW<float> *ptr = (hnswlib::HierarchicalNSW<float> *)index->hnsw;
@@ -337,6 +347,9 @@ void freeHNSW(HnswIndex *index)
     {
         throw std::runtime_error("Space name must be one of l2, ip, or cosine.");
     }
+
+    delete index;
+    index = nullptr;
 }
 
 void freeResult(SearchResult *result)

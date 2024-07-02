@@ -1,38 +1,138 @@
 package hnswgo
 
 import (
+	"errors"
+	"math"
 	"math/rand"
+	"os"
 	"testing"
 )
 
-func TestNewIndex(t *testing.T) {
-	dim := 400
-	M := 20
-	efConstruction := 10
+const testVectorDB = "./test.db"
+const (
+	dim            = 400
+	M              = 20
+	efConstruction = 10
 
-	batchSize := 100
-	maxElements := batchSize * 100
+	batchSize = 100
+)
 
-	index := New(dim, M, efConstruction, 432, uint64(maxElements), Cosine, true)
-	defer index.Free()
+func newTestIndex(batch int, allowRepaceDeleted bool) *HnswIndex {
+	maxElements := batch * batchSize
 
-	for i := 0; i < maxElements/batchSize; i++ {
+	index := New(dim, M, efConstruction, 55, uint64(maxElements), Cosine, allowRepaceDeleted)
+
+	for i := 0; i < batch; i++ {
 		points, labels := randomPoints(dim, i*batchSize, batchSize)
 		index.AddPoints(points, labels, 1, false)
 	}
-	index.Save("./example.data")
+
+	return index
 }
 
-func TestLoadIndex(t *testing.T) {
-	dim := 400
-	batchSize := 100
-	maxElements := batchSize * 100
+func TestNewIndex(t *testing.T) {
+	var maxElements uint64 = batchSize * 1
 
-	index := Load("./example.data", Cosine, dim, uint64(maxElements), true)
+	idx := newTestIndex(1, true)
+	defer idx.Free()
+
+	if idx.GetMaxElements() != maxElements {
+		t.Fail()
+	}
+
+	if idx.GetAllowReplaceDeleted() != true {
+		t.Fail()
+	}
+
+	if idx.GetCurrentCount() != maxElements {
+		t.Fail()
+	}
+
+}
+
+func TestLoadAndSaveIndex(t *testing.T) {
+	var maxElements uint64 = batchSize * 1
+
+	// setup
+	idx := newTestIndex(1, true)
+	idx.Save(testVectorDB)
+	idx.Free()
+
+	index := Load(testVectorDB, Cosine, dim, uint64(maxElements), true)
 	defer index.Free()
 
-	// index2 := Load("./example-nonexist.data", Cosine, dim, uint32(maxElements), true)
-	// defer index2.Free()
+	index.Save(testVectorDB)
+	t.Cleanup(func() {
+		deleteDB()
+	})
+}
+
+func TestResizeIndex(t *testing.T) {
+	var maxElements uint64 = batchSize * 1
+
+	idx := newTestIndex(1, false)
+	defer idx.Free()
+
+	if idx.GetMaxElements() != maxElements {
+		t.Fail()
+	}
+
+	if idx.GetCurrentCount() != maxElements {
+		t.Fail()
+	}
+
+	if idx.GetAllowReplaceDeleted() != false {
+		t.Fail()
+	}
+
+	points, labels := randomPoints(dim, 1*batchSize, batchSize)
+	err := idx.AddPoints(points, labels, 1, false)
+	if err == nil {
+		t.Log(err)
+		t.FailNow()
+	}
+
+	idx.ResizeIndex(maxElements * 2)
+	if idx.GetMaxElements() != maxElements*2 {
+		t.Fail()
+	}
+
+	if idx.GetCurrentCount() != maxElements {
+		t.Fail()
+	}
+
+	err = idx.AddPoints(points, labels, 1, false)
+	if err != nil {
+		t.Log(err)
+		t.Fail()
+	}
+}
+
+func TestReplacePoint(t *testing.T) {
+	allowRepaceDeleted := true
+	maxElements := 100
+	index := New(dim, M, efConstruction, 505, uint64(maxElements), Cosine, allowRepaceDeleted)
+	defer index.Free()
+
+	if !index.GetAllowReplaceDeleted() {
+		t.Fail()
+	}
+
+	points, labels := randomPoints(dim, 0, maxElements)
+	index.AddPoints(points, labels, 1, false)
+
+	index.MarkDeleted(labels[len(labels)-1])
+
+	err := index.AddPoints([][]float32{randomPoint(dim)}, []uint64{math.MaxUint64-1}, 1, false)
+	if err == nil {
+		t.Fail()
+	}
+
+	err = index.AddPoints([][]float32{randomPoint(dim)}, []uint64{math.MaxUint64-1}, 1, true)
+	if err != nil {
+		t.Fail()
+	}
+
 }
 
 func TestVectorSearch(t *testing.T) {
@@ -44,28 +144,29 @@ func TestVectorSearch(t *testing.T) {
 	defer index.Free()
 
 	query := genQuery(dim, 10)
+	topK := 5
 
-	result, err := index.SearchKNN(query, 5, 1)
+	result, err := index.SearchKNN(query, topK, 1)
 	if err != nil {
 		t.Error(err)
 		t.Fail()
 		return
 	}
 
+	if len(result) != len(query) {
+		t.Fail()
+	}
+
 	for _, rv := range result {
-		if rv == nil {
+		if len(rv) != topK {
 			t.Fail()
 			break
 		}
-		if rv.Distance <= 0 {
-			t.Fail()
-		}
-		if rv.Label == 0 {
-			t.Fail()
-		}
-
-		t.Logf("label: %d, distance: %f\n", rv.Label, rv.Distance)
 	}
+
+}
+
+func TestGetVectorData(t *testing.T) {
 
 }
 
@@ -97,4 +198,33 @@ func genQuery(dim int, size int) [][]float32 {
 	}
 
 	return points
+}
+
+func pathExists(path string) bool {
+	stat, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false
+	}
+
+	if err == nil || stat != nil {
+		return true
+	}
+
+	return false
+}
+
+func deleteDB() error {
+	if pathExists(testVectorDB) {
+		return os.Remove(testVectorDB)
+	}
+
+	return nil
+}
+
+func randomPoint(dim int) []float32 {
+	v := make([]float32, dim)
+	for i := range v {
+		v[i] = rand.Float32()
+	}
+	return v
 }

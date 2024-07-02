@@ -41,14 +41,16 @@ func main() {
 
 	}
 
-	query := [][]float32{randomPoint(dim)}
+	query := [][]float32{randomPoint(dim), randomPoint(dim)}
 	result, err := index.SearchKNN(query, 5, 1)
 	if err != nil {
 		panic(err)
 	}
 
-	for _, rv := range result {
-		fmt.Printf("label: %d, distance: %f\n", rv.Label, rv.Distance)
+	for i, row := range result {
+		for kth, rv := range row {
+			fmt.Printf("#%d: topK-[%d] label: %d, distance: %f\n", i, kth, rv.Label, rv.Distance)
+		}
 	}
 
 }

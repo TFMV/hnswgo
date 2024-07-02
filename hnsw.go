@@ -94,7 +94,8 @@ func (idx *HnswIndex) Save(location string) {
 	C.saveIndex(idx.index, cloc)
 }
 
-// Add points to hnsw index.
+// Adds points. Updates the point if it is already in the index.
+// If replacement of deleted elements is enabled: replaces previously deleted point if any, updating it with new point.
 func (idx *HnswIndex) AddPoints(vectors [][]float32, labels []uint64, concurrency int, replaceDeleted bool) error {
 	var replace int = 0
 	if replaceDeleted {
@@ -117,12 +118,17 @@ func (idx *HnswIndex) AddPoints(vectors [][]float32, labels []uint64, concurrenc
 	flatVectors := flatten2DArray(vectors)
 
 	//as a Go []float32 is layout-compatible with a C float[] so we can pass  Go slice directly to the C function as a pointer to its first element.
-	C.addPoints(idx.index,
+	errCode := C.addPoints(idx.index,
 		(*C.float)(unsafe.Pointer(&flatVectors[0])),
 		C.int(rows),
 		(*C.size_t)(unsafe.Pointer(&labels[0])),
 		C.int(concurrency),
 		C.int(replace))
+
+	if int(errCode) != 0 {
+		return errors.New("add point failed, check logged error to see details")
+	}
+
 	return nil
 }
 
@@ -139,7 +145,7 @@ func flatten2DArray(vectors [][]float32) []float32 {
 	return flatVectors
 }
 
-func (idx *HnswIndex) SearchKNN(vectors [][]float32, topK int, concurrency int) ([]*SearchResult, error) {
+func (idx *HnswIndex) SearchKNN(vectors [][]float32, topK int, concurrency int) ([][]*SearchResult, error) {
 	if len(vectors) <= 0 {
 		return nil, errors.New("invalid vector data")
 	}
@@ -148,7 +154,7 @@ func (idx *HnswIndex) SearchKNN(vectors [][]float32, topK int, concurrency int) 
 		return nil, errors.New("unmatched dimensions of vector and index")
 	}
 
-	if topK > int(idx.index.max_elements) {
+	if uint64(topK) > uint64(C.getMaxElements(idx.index)) {
 		return nil, errors.New("topK is larger than maxElements")
 	}
 
@@ -163,16 +169,31 @@ func (idx *HnswIndex) SearchKNN(vectors [][]float32, topK int, concurrency int) 
 
 	defer C.freeResult(cResult)
 
-	results := make([]*SearchResult, topK) //the resulting slice
-	for i := range results {
-		r := SearchResult{}
-		r.Label = *(*uint64)(unsafe.Add(unsafe.Pointer(cResult.label), i*C.sizeof_ulong))
-		r.Distance = *(*float32)(unsafe.Add(unsafe.Pointer(cResult.dist), i*C.sizeof_float))
-		results[i] = &r
+	results := make([][]*SearchResult, rows) //the resulting slice
+	for rowID := range results {
+		rowTopk := make([]*SearchResult, topK)
+		for j := 0; j < topK; j++ {
+			r := SearchResult{}
+			r.Label = *(*uint64)(unsafe.Add(unsafe.Pointer(cResult.label), (rowID*topK+j)*C.sizeof_ulong))
+			r.Distance = *(*float32)(unsafe.Add(unsafe.Pointer(cResult.dist), (rowID*topK+j)*C.sizeof_float))
+			rowTopk[j] = &r
+		}
+		results[rowID] = rowTopk
 	}
 
 	return results, nil
 
+}
+
+func (idx *HnswIndex) GetDataByLabel(label uint64) []float32 {
+	var vec []float32 = make([]float32, idx.index.dim)
+
+	C.getDataByLabel(idx.index, C.size_t(label), (*C.float)(unsafe.Pointer(&vec)))
+	return vec
+}
+
+func (idx *HnswIndex) GetAllowReplaceDeleted() bool {
+	return C.getAllowReplaceDeleted(idx.index) > 0
 }
 
 func (idx *HnswIndex) MarkDeleted(label uint64) {
