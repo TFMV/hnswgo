@@ -59,6 +59,7 @@ func TestLoadAndSaveIndex(t *testing.T) {
 	idx.Free()
 
 	index := Load(testVectorDB, Cosine, dim, uint64(maxElements), true)
+	index.SetEf(efConstruction)
 	defer index.Free()
 
 	index.Save(testVectorDB)
@@ -141,6 +142,7 @@ func TestVectorSearch(t *testing.T) {
 	maxElements := batchSize * 10000
 
 	index := Load("./example.data", Cosine, dim, uint64(maxElements), true)
+	index.SetEf(efConstruction)
 	defer index.Free()
 
 	query := genQuery(dim, 10)

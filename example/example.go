@@ -22,6 +22,7 @@ func main() {
 	var index *hnswgo.HnswIndex
 	if PathExists("./example.data") {
 		index = hnswgo.Load("./example.data", hnswgo.Cosine, dim, uint64(maxElements), true)
+		index.SetEf(efConstruction)
 		defer index.Free()
 
 	} else {

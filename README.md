@@ -3,13 +3,21 @@ This is a golang binding of [hnswlib](https://github.com/nmslib/hnswlib).
 For more information, please follow [hnswlib](https://github.com/nmslib/hnswlib) and 
 [Efficient and robust approximate nearest neighbor search using Hierarchical Navigable Small World graphs.](https://arxiv.org/abs/1603.09320).
 
-# Build
+## Build
 
 CGO is required to be enabled and c, c++ compiler is required to build this package.
 
 ```
 go get github.com/oligo/hnswgo
 ```
+
+## Usage and config
+
+See `example/example.go` or test codes to see usage. 
+
+
+Some important arguments are listed below:
+
 
 | argument       | type | |
 | -------------- | ---- | ----- |
@@ -25,6 +33,11 @@ go get github.com/oligo/hnswgo
 | ip        | inner product     |
 | cosine    | cosine similarity |
 | l2        | l2                |
+
+
+HNSWGO implements the main hnsw API，Brute force index is not implemented as it is rarely used.
+
+For more information, please consult documents of the [hnswlib projects](https://github.com/nmslib/hnswlib).
 
 # References
 Malkov, Yu A., and D. A. Yashunin. "Efficient and robust approximate nearest neighbor search using Hierarchical Navigable Small World graphs." TPAMI, preprint: [https://arxiv.org/abs/1603.09320]

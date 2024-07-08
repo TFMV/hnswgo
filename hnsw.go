@@ -19,15 +19,20 @@ const (
 	Cosine
 )
 
+// HnswIndex wraps the C index type and provides a set of useful index manipulation methods.
 type HnswIndex struct {
 	index *C.HnswIndex
 }
 
+// SearchResult is the result returned by search method. Field Distance may be of
+// euclidean distance or inner product distance, or cosine distance, depending on the chosen space type.
 type SearchResult struct {
 	Label    uint64
 	Distance float32
 }
 
+// Create a new HnswIndex with  the specified dimension and other parameters. For details please see hnswlib documents.
+// When allowReplaceDeleted is set, deleted elements can be replaced with new added ones.
 func New(dim, M, efConstruction, randSeed int, maxElements uint64, spaceType SpaceType, allowReplaceDeleted bool) *HnswIndex {
 	var allowReplace int = 0
 	if allowReplaceDeleted {
@@ -51,6 +56,7 @@ func New(dim, M, efConstruction, randSeed int, maxElements uint64, spaceType Spa
 	}
 }
 
+// Loads data from existing HNSW index.
 func Load(location string, spaceType SpaceType, dim int, maxElements uint64, allowReplaceDeleted bool) *HnswIndex {
 	var allowReplace int = 0
 	if allowReplaceDeleted {
@@ -77,16 +83,20 @@ func Load(location string, spaceType SpaceType, dim int, maxElements uint64, all
 	}
 }
 
+// Sets the query time accuracy/speed trade-off, defined by the ef parameter ( see doc ALGO_PARAMS.md of hnswlib).
+// Note that the parameter is currently not saved along with the index, so you need to set it manually after loading.
 func (idx *HnswIndex) SetEf(ef int) {
 	C.setEf(idx.index, C.size_t(ef))
 }
 
+// Returns index file size in bytes.
 func (idx *HnswIndex) IndexFileSize() uint64 {
 	sz := C.indexFileSize(idx.index)
 
 	return uint64(sz)
 }
 
+// Save writes index data to disk.
 func (idx *HnswIndex) Save(location string) {
 	cloc := C.CString(location)
 	defer C.free(unsafe.Pointer(cloc))
@@ -145,6 +155,8 @@ func flatten2DArray(vectors [][]float32) []float32 {
 	return flatVectors
 }
 
+// SearchKNN do a batch query against the index using the provided vectors. concurrency set the threads to use for searching.
+// For each of the queried vector, topK SearchResults will be returned if no error occured.
 func (idx *HnswIndex) SearchKNN(vectors [][]float32, topK int, concurrency int) ([][]*SearchResult, error) {
 	if len(vectors) <= 0 {
 		return nil, errors.New("invalid vector data")
@@ -185,6 +197,7 @@ func (idx *HnswIndex) SearchKNN(vectors [][]float32, topK int, concurrency int) 
 
 }
 
+// Getting vector data by label.
 func (idx *HnswIndex) GetDataByLabel(label uint64) []float32 {
 	var vec []float32 = make([]float32, idx.index.dim)
 
@@ -192,30 +205,37 @@ func (idx *HnswIndex) GetDataByLabel(label uint64) []float32 {
 	return vec
 }
 
+// Get the setting of allowReplaceDeleted.
 func (idx *HnswIndex) GetAllowReplaceDeleted() bool {
 	return C.getAllowReplaceDeleted(idx.index) > 0
 }
 
+// Marks the element as deleted, so it will be omitted from search results.
 func (idx *HnswIndex) MarkDeleted(label uint64) {
 	C.markDeleted(idx.index, C.size_t(label))
 }
 
+// Unmarks the element as deleted, so it will be not be omitted from search results.
 func (idx *HnswIndex) UnmarkDeleted(label uint64) {
 	C.unmarkDeleted(idx.index, C.size_t(label))
 }
 
+// Resize changes the maximum capacity of the index.
 func (idx *HnswIndex) ResizeIndex(newSize uint64) {
 	C.resizeIndex(idx.index, C.size_t(newSize))
 }
 
+// Returns the current capacity of the index
 func (idx *HnswIndex) GetMaxElements() uint64 {
 	return uint64(C.getMaxElements(idx.index))
 }
 
+// Returns the current number of element stored in the index.
 func (idx *HnswIndex) GetCurrentCount() uint64 {
 	return uint64(C.getCurrentCount(idx.index))
 }
 
+// Free resources bound to the index. Should be called when index is destroyed on close.
 func (idx *HnswIndex) Free() {
 	C.freeHNSW(idx.index)
 }
