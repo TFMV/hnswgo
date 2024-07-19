@@ -14,6 +14,7 @@ go get github.com/oligo/hnswgo
 ## Usage and config
 
 See `example/example.go` or test codes to see usage. 
+For detailed information, please refer to the project's documentation at [pkg.go.dev](https://pkg.go.dev/github.com/oligo/hnswgo).
 
 
 Some important arguments are listed below:
