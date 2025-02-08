@@ -8,7 +8,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/oligo/hnswgo"
+	"github.com/TFMV/hnswgo"
 )
 
 func main() {
@@ -20,8 +20,12 @@ func main() {
 	maxElements := 100000
 
 	var index *hnswgo.HnswIndex
+	var err error
 	if PathExists("./example.data") {
-		index = hnswgo.Load("./example.data", hnswgo.Cosine, dim, uint64(maxElements), true)
+		index, err = hnswgo.Load("./example.data", hnswgo.Cosine, dim, uint64(maxElements), true)
+		if err != nil {
+			panic(err)
+		}
 		index.SetEf(efConstruction)
 		defer index.Free()
 
