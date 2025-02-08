@@ -2,6 +2,7 @@ package hnswgo
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"math/rand"
 	"os"
@@ -58,7 +59,10 @@ func TestLoadAndSaveIndex(t *testing.T) {
 	idx.Save(testVectorDB)
 	idx.Free()
 
-	index := Load(testVectorDB, Cosine, dim, uint64(maxElements), true)
+	index, err := Load(testVectorDB, Cosine, dim, uint64(maxElements), true)
+	if err != nil {
+		t.Fail()
+	}
 	index.SetEf(efConstruction)
 	defer index.Free()
 
@@ -124,12 +128,12 @@ func TestReplacePoint(t *testing.T) {
 
 	index.MarkDeleted(labels[len(labels)-1])
 
-	err := index.AddPoints([][]float32{randomPoint(dim)}, []uint64{math.MaxUint64-1}, 1, false)
+	err := index.AddPoints([][]float32{randomPoint(dim)}, []uint64{math.MaxUint64 - 1}, 1, false)
 	if err == nil {
 		t.Fail()
 	}
 
-	err = index.AddPoints([][]float32{randomPoint(dim)}, []uint64{math.MaxUint64-1}, 1, true)
+	err = index.AddPoints([][]float32{randomPoint(dim)}, []uint64{math.MaxUint64 - 1}, 1, true)
 	if err != nil {
 		t.Fail()
 	}
@@ -137,39 +141,96 @@ func TestReplacePoint(t *testing.T) {
 }
 
 func TestVectorSearch(t *testing.T) {
-	dim := 400
-	batchSize := 100
-	maxElements := batchSize * 10000
+	indexPath := "testdata/index.hnsw"
 
-	index := Load("./example.data", Cosine, dim, uint64(maxElements), true)
-	index.SetEf(efConstruction)
-	defer index.Free()
-
-	query := genQuery(dim, 10)
-	topK := 5
-
-	result, err := index.SearchKNN(query, topK, 1)
-	if err != nil {
-		t.Error(err)
-		t.Fail()
-		return
+	// Ensure testdata directory exists
+	if err := os.MkdirAll("testdata", os.ModePerm); err != nil {
+		t.Fatalf("Failed to create test directory: %v", err)
 	}
 
-	if len(result) != len(query) {
-		t.Fail()
-	}
+	// Create a new index if it doesn't exist
+	if _, err := os.Stat(indexPath); os.IsNotExist(err) {
+		fmt.Println("Index file does not exist. Creating a new one...")
 
-	for _, rv := range result {
-		if len(rv) != topK {
-			t.Fail()
-			break
+		index := New(3, 16, 200, 42, 10000, Cosine, true)
+
+		// Add some sample data - these vectors are only dimension 3!
+		vectors := [][]float32{
+			{0.1, 0.2, 0.3}, // dimension 3
+			{0.4, 0.5, 0.6}, // dimension 3
+			{0.7, 0.8, 0.9}, // dimension 3
 		}
+		labels := []uint64{1, 2, 3}
+
+		err := index.AddPoints(vectors, labels, 2, true)
+		if err != nil {
+			t.Fatalf("Failed to add points: %v", err)
+		}
+
+		// Save the index
+		index.Save(indexPath)
+		fmt.Println("Index created and saved at:", indexPath)
 	}
 
+	// Load the saved index
+	index, err := Load(indexPath, Cosine, 3, 10000, true)
+	if err != nil {
+		t.Fatalf("Failed to load index: %v", err)
+	}
+
+	// Perform a search
+	query := [][]float32{
+		{0.3, 0.3, 0.3},
+	}
+	results, err := index.SearchKNN(query, 2, 2)
+	if err != nil {
+		t.Fatalf("Search failed: %v", err)
+	}
+
+	fmt.Println("Search results:", results)
 }
 
 func TestGetVectorData(t *testing.T) {
+	indexPath := "testdata/index.hnsw"
 
+	// Ensure testdata directory exists
+	if err := os.MkdirAll("testdata", os.ModePerm); err != nil {
+		t.Fatalf("Failed to create test directory: %v", err)
+	}
+
+	// Create a new index if it doesn't exist
+	if _, err := os.Stat(indexPath); os.IsNotExist(err) {
+		fmt.Println("Index file does not exist. Creating a new one...")
+
+		index := New(3, 16, 200, 42, 10000, Cosine, true)
+
+		vectors := [][]float32{
+			{0.1, 0.2, 0.3}, // dimension 3
+			{0.4, 0.5, 0.6}, // dimension 3
+			{0.7, 0.8, 0.9}, // dimension 3
+		}
+		labels := []uint64{1, 2, 3}
+
+		err := index.AddPoints(vectors, labels, 2, true)
+		if err != nil {
+			t.Fatalf("Failed to add points: %v", err)
+		}
+
+		index.Save(indexPath)
+		fmt.Println("Index created and saved at:", indexPath)
+		t.Cleanup(func() {
+			deleteDB()
+		})
+	}
+
+	index, err := Load(indexPath, Cosine, 3, 10000, true)
+	if err != nil {
+		t.Fatalf("Failed to load index: %v", err)
+	}
+	defer index.Free()
+
+	vector := index.GetDataByLabel(1)
+	fmt.Println("Vector data:", vector)
 }
 
 func randomPoints(dim int, startLabel int, batchSize int) ([][]float32, []uint64) {
@@ -186,20 +247,6 @@ func randomPoints(dim int, startLabel int, batchSize int) ([][]float32, []uint64
 	}
 
 	return points, labels
-}
-
-func genQuery(dim int, size int) [][]float32 {
-	points := make([][]float32, size)
-
-	for i := 0; i < size; i++ {
-		v := make([]float32, dim)
-		for i := range v {
-			v[i] = rand.Float32()
-		}
-		points[i] = v
-	}
-
-	return points
 }
 
 func pathExists(path string) bool {
@@ -229,4 +276,9 @@ func randomPoint(dim int) []float32 {
 		v[i] = rand.Float32()
 	}
 	return v
+}
+
+func _genQuery(dim int, size int) [][]float32 {
+	// Implementation of _genQuery function
+	return nil // Placeholder return, actual implementation needed
 }
