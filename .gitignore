@@ -47,3 +47,6 @@
 *.out
 *.app
 .vscode
+
+# Ignore all files in the testdata directory
+testdata/

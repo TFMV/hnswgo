@@ -57,7 +57,7 @@ func New(dim, M, efConstruction, randSeed int, maxElements uint64, spaceType Spa
 }
 
 // Loads data from existing HNSW index.
-func Load(location string, spaceType SpaceType, dim int, maxElements uint64, allowReplaceDeleted bool) *HnswIndex {
+func Load(location string, spaceType SpaceType, dim int, maxElements uint64, allowReplaceDeleted bool) (*HnswIndex, error) {
 	var allowReplace int = 0
 	if allowReplaceDeleted {
 		allowReplace = 1
@@ -78,9 +78,13 @@ func Load(location string, spaceType SpaceType, dim int, maxElements uint64, all
 
 	cindex := C.loadIndex(cloc, sType, C.int(dim), C.size_t(maxElements), C.int(allowReplace))
 
+	if cindex == nil {
+		return nil, errors.New("failed to load index file")
+	}
+
 	return &HnswIndex{
 		index: cindex,
-	}
+	}, nil
 }
 
 // Sets the query time accuracy/speed trade-off, defined by the ef parameter ( see doc ALGO_PARAMS.md of hnswlib).
